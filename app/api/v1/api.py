@@ -7,6 +7,7 @@ from app.api.v1.routes.order_read_routes import router as order_read_router
 from app.api.v1.routes.product_read_routes import router as product_read_router
 from app.api.v1.routes.nursery_routes import router as nursery_router
 from app.api.v1.routes.order_status_routes import router as order_status_router
+from app.api.v1.routes.analytics_routes import router as analytics_router
 
 api_router = APIRouter()
 
@@ -21,3 +22,5 @@ api_router.include_router(order_read_router, prefix="/orders", tags=["Orders Rea
 api_router.include_router(order_status_router, prefix="/orders", tags=["Order Status"])
 
 api_router.include_router(nursery_router, prefix="/nursery", tags=["Nursery"])
+
+api_router.include_router(analytics_router, prefix="/analytics", tags=["Analytics"])

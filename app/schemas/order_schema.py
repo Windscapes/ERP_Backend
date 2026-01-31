@@ -49,6 +49,8 @@ class OrderDetailResponse(BaseModel):
     total_order_amount: str
     ordered_at: str
     updated_at: str
+    invoice_generated_at: Optional[str] = None
+    paid_at: Optional[str] = None
     items: List[OrderedProductView]
 
 
