@@ -143,3 +143,81 @@ def get_top_products(
         })
     
     return top_products
+
+@router.get("/revenue-trend")
+def get_revenue_trend(
+    db: Session = Depends(get_db),
+    admin = Depends(require_admin),
+    days: int = 30
+):
+    """
+    Get daily revenue trend for the last N days
+    """
+    from datetime import date
+    
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=days)
+    
+    # Get orders grouped by date
+    daily_revenue = db.query(
+        func.date(OrderTable.ordered_at).label('date'),
+        func.sum(OrderTable.total_order_amount).label('revenue')
+    ).filter(
+        OrderTable.ordered_at >= start_date
+    ).group_by(
+        func.date(OrderTable.ordered_at)
+    ).order_by(
+        'date'
+    ).all()
+    
+    # Create a complete date range with all days (filling gaps with 0)
+    revenue_data = []
+    current_date = start_date.date()
+    revenue_dict = {row.date: float(row.revenue) for row in daily_revenue}
+    
+    while current_date <= end_date.date():
+        revenue_data.append({
+            "date": current_date.strftime("%Y-%m-%d"),
+            "revenue": revenue_dict.get(current_date, 0)
+        })
+        current_date += timedelta(days=1)
+    
+    return revenue_data
+
+@router.get("/orders-trend")
+def get_orders_trend(
+    db: Session = Depends(get_db),
+    admin = Depends(require_admin),
+    days: int = 30
+):
+    """
+    Get daily order count trend for the last N days
+    """
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=days)
+    
+    # Get orders grouped by date
+    daily_orders = db.query(
+        func.date(OrderTable.ordered_at).label('date'),
+        func.count(OrderTable.order_id).label('orders')
+    ).filter(
+        OrderTable.ordered_at >= start_date
+    ).group_by(
+        func.date(OrderTable.ordered_at)
+    ).order_by(
+        'date'
+    ).all()
+    
+    # Create a complete date range with all days (filling gaps with 0)
+    orders_data = []
+    current_date = start_date.date()
+    orders_dict = {row.date: int(row.orders) for row in daily_orders}
+    
+    while current_date <= end_date.date():
+        orders_data.append({
+            "date": current_date.strftime("%Y-%m-%d"),
+            "orders": orders_dict.get(current_date, 0)
+        })
+        current_date += timedelta(days=1)
+    
+    return orders_data
