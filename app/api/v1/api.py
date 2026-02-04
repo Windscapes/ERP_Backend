@@ -9,6 +9,7 @@ from app.api.v1.routes.nursery_routes import router as nursery_router
 from app.api.v1.routes.order_status_routes import router as order_status_router
 from app.api.v1.routes.analytics_routes import router as analytics_router
 from app.api.v1.routes.employee_routes import router as employee_router
+from app.api.v1.routes.notification_routes import router as notification_router
 
 api_router = APIRouter()
 
@@ -27,3 +28,5 @@ api_router.include_router(nursery_router, prefix="/nursery", tags=["Nursery"])
 api_router.include_router(analytics_router, prefix="/analytics", tags=["Analytics"])
 
 api_router.include_router(employee_router, prefix="/employees", tags=["Employees"])
+
+api_router.include_router(notification_router, prefix="/notifications", tags=["Notifications"])

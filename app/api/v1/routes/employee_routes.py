@@ -6,9 +6,46 @@ from app.core.deps import get_db, get_current_user, require_admin
 from app.models.user import UserTable
 from app.models.employee_scan_log import EmployeeScanLog
 from app.models.order_table import OrderTable
+from app.schemas.employee_schema import EmployeeCreateRequest, EmployeeCreateResponse
+from app.core.security import hash_password
+from app.core.id_generator import generate_user_id
 from sqlalchemy import func
 
 router = APIRouter()
+
+
+@router.post("/create", response_model=EmployeeCreateResponse)
+def create_employee(
+    payload: EmployeeCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: UserTable = Depends(require_admin)
+):
+    """Create a new employee account"""
+    # Check if username already exists
+    existing = db.query(UserTable).filter(UserTable.user_username == payload.username).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Username already exists")
+    
+    # Generate employee ID
+    employee_id = generate_user_id(db, "employee")
+    
+    # Create new employee
+    new_employee = UserTable(
+        user_id=employee_id,
+        user_username=payload.username,
+        user_password=hash_password(payload.password),
+        role="employee"
+    )
+    
+    db.add(new_employee)
+    db.commit()
+    db.refresh(new_employee)
+    
+    return EmployeeCreateResponse(
+        employee_id=new_employee.user_id,
+        username=new_employee.user_username,
+        message="Employee created successfully"
+    )
 
 
 @router.get("/employees")

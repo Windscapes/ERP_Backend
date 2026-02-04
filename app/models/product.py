@@ -18,6 +18,7 @@ class Product(Base):
 
     inventory_quantity = Column(Integer, nullable=False, default=0)
     ordered_quantity = Column(Integer, nullable=False, default=0)
+    low_stock_threshold = Column(Integer, nullable=False, default=10)
 
     base_price_per_unit = Column(Numeric(12, 2), nullable=False)
     rate_percentage = Column(Numeric(5, 2), nullable=False, default=0)
