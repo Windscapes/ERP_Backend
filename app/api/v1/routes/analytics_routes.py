@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, case
 from datetime import datetime, timedelta
 
 from app.core.deps import get_db, require_admin
@@ -17,64 +17,82 @@ def get_analytics_overview(
     admin = Depends(require_admin)
 ):
     """
-    Get overall analytics overview including revenue, orders, products, and employees
+    Get overall analytics overview — all computed in 4 DB round-trips.
     """
-    # Total revenue from all orders
-    total_revenue = db.query(func.sum(OrderTable.total_order_amount)).scalar() or 0
-    
-    # Total number of orders
-    total_orders = db.query(OrderTable).count()
-    
-    # Total number of products
-    total_products = db.query(Product).count()
-    
-    # Count employees (users with role='employee')
-    active_employees = db.query(UserTable).filter(UserTable.role == 'employee').count()
-    
-    # Count orders by status
-    orders_by_status = {}
-    for status in OrderStatus:
-        count = db.query(OrderTable).filter(OrderTable.status == status).count()
-        orders_by_status[status.value] = count
-    
-    # Revenue last 30 days vs previous 30 days for growth calculation
     thirty_days_ago = datetime.now() - timedelta(days=30)
-    sixty_days_ago = datetime.now() - timedelta(days=60)
-    
-    revenue_last_30 = db.query(func.sum(OrderTable.total_order_amount))\
-        .filter(OrderTable.ordered_at >= thirty_days_ago)\
-        .scalar() or 0
-    
-    revenue_previous_30 = db.query(func.sum(OrderTable.total_order_amount))\
-        .filter(
-            OrderTable.ordered_at >= sixty_days_ago,
-            OrderTable.ordered_at < thirty_days_ago
-        )\
-        .scalar() or 0
-    
-    revenue_growth = 0
-    if revenue_previous_30 > 0:
-        revenue_growth = ((float(revenue_last_30) - float(revenue_previous_30)) / float(revenue_previous_30)) * 100
-    
-    # Orders growth
-    orders_last_30 = db.query(OrderTable).filter(OrderTable.ordered_at >= thirty_days_ago).count()
-    orders_previous_30 = db.query(OrderTable).filter(
-        OrderTable.ordered_at >= sixty_days_ago,
-        OrderTable.ordered_at < thirty_days_ago
-    ).count()
-    
-    orders_growth = 0
-    if orders_previous_30 > 0:
-        orders_growth = ((orders_last_30 - orders_previous_30) / orders_previous_30) * 100
-    
+    sixty_days_ago  = datetime.now() - timedelta(days=60)
+
+    # ── Query 1: totals + status breakdown in a single pass ──────────────────
+    row = db.query(
+        func.sum(OrderTable.total_order_amount).label("total_revenue"),
+        func.count(OrderTable.order_id).label("total_orders"),
+        func.sum(case(
+            (OrderTable.status == OrderStatus.CREATED,     1), else_=0
+        )).label("cnt_created"),
+        func.sum(case(
+            (OrderTable.status == OrderStatus.IN_PROGRESS, 1), else_=0
+        )).label("cnt_in_progress"),
+        func.sum(case(
+            (OrderTable.status == OrderStatus.COMPLETED,   1), else_=0
+        )).label("cnt_completed"),
+        # revenue slices for growth
+        func.sum(case(
+            (OrderTable.ordered_at >= thirty_days_ago,
+             OrderTable.total_order_amount), else_=0
+        )).label("rev_last_30"),
+        func.sum(case(
+            (
+                (OrderTable.ordered_at >= sixty_days_ago) &
+                (OrderTable.ordered_at <  thirty_days_ago),
+                OrderTable.total_order_amount
+            ), else_=0
+        )).label("rev_prev_30"),
+        # order-count slices for growth
+        func.sum(case(
+            (OrderTable.ordered_at >= thirty_days_ago, 1), else_=0
+        )).label("ord_last_30"),
+        func.sum(case(
+            (
+                (OrderTable.ordered_at >= sixty_days_ago) &
+                (OrderTable.ordered_at <  thirty_days_ago),
+                1
+            ), else_=0
+        )).label("ord_prev_30"),
+    ).one()
+
+    # ── Query 2: product count ────────────────────────────────────────────────
+    total_products = db.query(func.count(Product.product_id)).scalar() or 0
+
+    # ── Query 3: employee count ───────────────────────────────────────────────
+    active_employees = db.query(func.count(UserTable.user_id))\
+        .filter(UserTable.role == 'employee').scalar() or 0
+
+    total_revenue  = float(row.total_revenue  or 0)
+    rev_last_30    = float(row.rev_last_30    or 0)
+    rev_prev_30    = float(row.rev_prev_30    or 0)
+    ord_last_30    = int(row.ord_last_30      or 0)
+    ord_prev_30    = int(row.ord_prev_30      or 0)
+
+    revenue_growth = 0.0
+    if rev_prev_30 > 0:
+        revenue_growth = ((rev_last_30 - rev_prev_30) / rev_prev_30) * 100
+
+    orders_growth = 0.0
+    if ord_prev_30 > 0:
+        orders_growth = ((ord_last_30 - ord_prev_30) / ord_prev_30) * 100
+
     return {
-        "total_revenue": str(total_revenue),
-        "total_orders": total_orders,
-        "total_products": total_products,
+        "total_revenue":    str(total_revenue),
+        "total_orders":     int(row.total_orders or 0),
+        "total_products":   total_products,
         "active_employees": active_employees,
-        "orders_by_status": orders_by_status,
+        "orders_by_status": {
+            OrderStatus.CREATED.value:     int(row.cnt_created     or 0),
+            OrderStatus.IN_PROGRESS.value: int(row.cnt_in_progress or 0),
+            OrderStatus.COMPLETED.value:   int(row.cnt_completed   or 0),
+        },
         "revenue_growth": round(revenue_growth, 2),
-        "orders_growth": round(orders_growth, 2)
+        "orders_growth":  round(orders_growth,  2),
     }
 
 @router.get("/designers")
@@ -83,32 +101,34 @@ def get_designer_analytics(
     admin = Depends(require_admin)
 ):
     """
-    Get performance metrics for designers/admins
+    Get performance metrics for designers/admins — single aggregated query.
     """
-    # Get all admin users
-    admins = db.query(UserTable).filter(UserTable.role == 'admin').all()
-    
-    designer_stats = []
-    for admin_user in admins:
-        # Get orders created by this admin
-        orders = db.query(OrderTable).filter(OrderTable.user_id == admin_user.user_id).all()
-        
-        order_count = len(orders)
-        total_revenue = sum(float(order.total_order_amount) for order in orders)
-        avg_order_value = total_revenue / order_count if order_count > 0 else 0
-        
-        designer_stats.append({
-            "user_id": admin_user.user_id,
-            "username": admin_user.user_username,
-            "orders": order_count,
-            "revenue": str(total_revenue),
-            "avg_order_value": str(round(avg_order_value, 2))
-        })
-    
-    # Sort by revenue descending
-    designer_stats.sort(key=lambda x: float(x["revenue"]), reverse=True)
-    
-    return designer_stats
+    rows = db.query(
+        UserTable.user_id,
+        UserTable.user_username,
+        func.count(OrderTable.order_id).label("order_count"),
+        func.coalesce(func.sum(OrderTable.total_order_amount), 0).label("total_revenue"),
+    ).outerjoin(
+        OrderTable, OrderTable.user_id == UserTable.user_id
+    ).filter(
+        UserTable.role == 'admin'
+    ).group_by(
+        UserTable.user_id, UserTable.user_username
+    ).order_by(
+        desc("total_revenue")
+    ).all()
+
+    return [
+        {
+            "user_id":         r.user_id,
+            "username":        r.user_username,
+            "orders":          int(r.order_count),
+            "revenue":         str(r.total_revenue),
+            "avg_order_value": str(round(float(r.total_revenue) / r.order_count, 2)
+                                   if r.order_count else "0"),
+        }
+        for r in rows
+    ]
 
 @router.get("/products/top")
 def get_top_products(

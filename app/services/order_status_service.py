@@ -29,15 +29,14 @@ def complete_order_service(db: Session, order_id: str):
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    if order.status != "IN_PROGRESS":
+    if order.status == "COMPLETED":
         raise HTTPException(
             status_code=400,
-            detail=f"Only IN_PROGRESS orders can be completed. Current status={order.status}"
+            detail="Order is already completed"
         )
 
     order.status = "COMPLETED"
     order.updated_at = datetime.utcnow()
-
     order.paid_at = datetime.utcnow()
 
     db.commit()

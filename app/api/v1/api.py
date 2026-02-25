@@ -11,6 +11,7 @@ from app.api.v1.routes.analytics_routes import router as analytics_router
 from app.api.v1.routes.employee_routes import router as employee_router
 from app.api.v1.routes.notification_routes import router as notification_router
 from app.api.v1.routes.event_routes import router as event_router
+from app.api.v1.routes.scan_routes import router as scan_router
 
 api_router = APIRouter()
 
@@ -33,3 +34,5 @@ api_router.include_router(employee_router, prefix="/employees", tags=["Employees
 api_router.include_router(notification_router, prefix="/notifications", tags=["Notifications"])
 
 api_router.include_router(event_router, prefix="/events", tags=["Events"])
+
+api_router.include_router(scan_router, prefix="/employees", tags=["Scan"])

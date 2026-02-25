@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, require_admin
+from app.core.deps import get_db, require_admin, get_current_user
 from app.services.order_status_service import start_order_service, complete_order_service
 
 router = APIRouter()
@@ -22,12 +22,12 @@ def start_order(
     }
 
 
-# IN_PROGRESS -> COMPLETED
+# IN_PROGRESS -> COMPLETED (accessible by any authenticated user, including employees)
 @router.patch("/{order_id}/complete")
 def complete_order(
     order_id: str,
     db: Session = Depends(get_db),
-    admin=Depends(require_admin)
+    current_user=Depends(get_current_user)
 ):
     order = complete_order_service(db, order_id)
     return {
