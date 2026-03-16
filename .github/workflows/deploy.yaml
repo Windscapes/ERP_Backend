@@ -1,0 +1,41 @@
+name: Deploy ERP Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Ensure webnet network exists
+        run: |
+          docker network inspect webnet >/dev/null 2>&1 || docker network create webnet
+
+      - name: Stop and remove old container (force clean)
+        run: |
+          docker ps -aq --filter "name=erp-backend" | xargs -r docker rm -f
+
+      - name: Build Docker image
+        run: |
+          docker build -t erp-backend:latest .
+
+      - name: Run new container
+        run: |
+          docker run -d \
+            --name erp-backend \
+            --network webnet \
+            -p 8000:8000 \
+            --restart always \
+            --env-file /home/ubuntu/erp-backend.env \
+            erp-backend:latest
+
+      - name: Health check
+        run: |
+          sleep 5
+          curl -f http://localhost:8000 || (docker logs erp-backend && exit 1)
